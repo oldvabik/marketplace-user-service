@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: ${POSTGRES_URL_DOCKER}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  data:
+    redis:
+      host: redis
+      port: 6379
+      database: 0
