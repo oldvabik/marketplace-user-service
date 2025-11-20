@@ -5,22 +5,29 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.oldvabik.userservice.dto.*;
-import org.oldvabik.userservice.entity.*;
-import org.oldvabik.userservice.exception.*;
-import org.oldvabik.userservice.mapper.*;
-import org.oldvabik.userservice.repository.*;
+import org.oldvabik.userservice.entity.Card;
+import org.oldvabik.userservice.entity.User;
+import org.oldvabik.userservice.exception.AlreadyExistsException;
+import org.oldvabik.userservice.exception.NotFoundException;
+import org.oldvabik.userservice.mapper.CardMapper;
+import org.oldvabik.userservice.mapper.UserMapper;
+import org.oldvabik.userservice.repository.CardRepository;
+import org.oldvabik.userservice.repository.UserRepository;
 import org.oldvabik.userservice.security.AccessChecker;
 import org.oldvabik.userservice.service.impl.CardServiceImpl;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
-import org.springframework.security.core.Authentication;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.access.AccessDeniedException;
-import java.util.*;
+import org.springframework.security.core.Authentication;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-public class CardServiceImplTest {
+class CardServiceImplTest {
 
     @Mock
     private CardRepository cardRepository;
@@ -34,6 +41,8 @@ public class CardServiceImplTest {
     private AccessChecker accessChecker;
     @Mock
     private Authentication auth;
+    @Mock
+    private RedisTemplate<String, Object> redisTemplate;
 
     @InjectMocks
     private CardServiceImpl cardService;
@@ -49,30 +58,32 @@ public class CardServiceImplTest {
         user.setName("John");
         user.setSurname("Doe");
 
-        Card card = new Card();
-        Card saved = new Card();
-        saved.setId(1L);
-        CardDto cardDto = new CardDto();
+        Card cardFromMapper = new Card();
+        Card savedCard = new Card();
+        savedCard.setId(1L);
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(true);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(true);
         when(cardRepository.findByNumber("1234")).thenReturn(Optional.empty());
-        when(cardMapper.toEntity(dto)).thenReturn(card);
-        when(cardRepository.save(card)).thenReturn(saved);
-        when(cardMapper.toDto(saved)).thenReturn(cardDto);
+        when(cardMapper.toEntity(dto)).thenReturn(cardFromMapper);
+        when(cardRepository.save(cardFromMapper)).thenReturn(savedCard);
+        when(cardMapper.toDto(savedCard)).thenReturn(new CardDto());
+        when(redisTemplate.keys(anyString())).thenReturn(Collections.emptySet());
 
-        CardDto result = cardService.createCard(auth, dto);
-        assertNotNull(result);
-        verify(cardRepository).save(card);
+        assertNotNull(cardService.createCard(auth, dto));
+
+        verify(cardRepository).save(cardFromMapper);
+        verify(redisTemplate, atLeastOnce()).keys(anyString());
     }
 
     @Test
     void createCard_userNotFound() {
         CardCreateDto dto = new CardCreateDto();
-        dto.setUserId(1L);
+        dto.setUserId(999L);
 
-        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+        when(userRepository.findById(999L)).thenReturn(Optional.empty());
+
         assertThrows(NotFoundException.class, () -> cardService.createCard(auth, dto));
     }
 
@@ -84,7 +95,7 @@ public class CardServiceImplTest {
         User user = new User();
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(false);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(false);
 
         assertThrows(AccessDeniedException.class, () -> cardService.createCard(auth, dto));
     }
@@ -98,7 +109,7 @@ public class CardServiceImplTest {
         User user = new User();
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(true);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(true);
         when(cardRepository.findByNumber("1234")).thenReturn(Optional.of(new Card()));
 
         assertThrows(AlreadyExistsException.class, () -> cardService.createCard(auth, dto));
@@ -109,11 +120,11 @@ public class CardServiceImplTest {
         Card card = new Card();
         User user = new User();
         card.setUser(user);
-
         CardDto cardDto = new CardDto();
-        when(cardRepository.findById(1L)).thenReturn(Optional.of(card));
+
+        when(cardRepository.findByIdWithUserWithCards(1L)).thenReturn(Optional.of(card));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(true);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(true);
         when(cardMapper.toDto(card)).thenReturn(cardDto);
 
         CardDto result = cardService.getCardById(auth, 1L);
@@ -122,7 +133,7 @@ public class CardServiceImplTest {
 
     @Test
     void getCardById_notFound() {
-        when(cardRepository.findById(1L)).thenReturn(Optional.empty());
+        when(cardRepository.findByIdWithUserWithCards(1L)).thenReturn(Optional.empty());
         assertThrows(NotFoundException.class, () -> cardService.getCardById(auth, 1L));
     }
 
@@ -132,9 +143,9 @@ public class CardServiceImplTest {
         User user = new User();
         card.setUser(user);
 
-        when(cardRepository.findById(1L)).thenReturn(Optional.of(card));
+        when(cardRepository.findByIdWithUserWithCards(1L)).thenReturn(Optional.of(card));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(false);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(false);
 
         assertThrows(AccessDeniedException.class, () -> cardService.getCardById(auth, 1L));
     }
@@ -164,7 +175,7 @@ public class CardServiceImplTest {
 
         when(cardRepository.findById(id)).thenReturn(Optional.of(card));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(true);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(true);
         when(cardRepository.findByNumber("5678")).thenReturn(Optional.empty());
         when(cardRepository.save(card)).thenReturn(saved);
         when(cardMapper.toDto(saved)).thenReturn(cardDto);
@@ -191,7 +202,7 @@ public class CardServiceImplTest {
 
         when(cardRepository.findById(id)).thenReturn(Optional.of(card));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(true);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(true);
         when(cardRepository.findByNumber("1234")).thenReturn(Optional.of(new Card()));
 
         assertThrows(AlreadyExistsException.class, () -> cardService.updateCard(auth, id, dto));
@@ -208,7 +219,7 @@ public class CardServiceImplTest {
 
         when(cardRepository.findById(id)).thenReturn(Optional.of(card));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(false);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(false);
 
         assertThrows(AccessDeniedException.class, () -> cardService.updateCard(auth, id, dto));
     }
@@ -217,19 +228,25 @@ public class CardServiceImplTest {
     void deleteCard_success() {
         Card card = new Card();
         User user = new User();
+        user.setId(1L);
+        user.setEmail("test@example.com");
         card.setUser(user);
 
-        when(cardRepository.findById(1L)).thenReturn(Optional.of(card));
+        when(cardRepository.findByIdWithUserWithCards(1L)).thenReturn(Optional.of(card));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(true);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(true);
+        when(redisTemplate.keys(anyString())).thenReturn(Collections.emptySet());
 
         cardService.deleteCard(auth, 1L);
+
         verify(cardRepository).delete(card);
+
+        verify(redisTemplate, atLeastOnce()).keys(anyString());
     }
 
     @Test
     void deleteCard_notFound() {
-        when(cardRepository.findById(1L)).thenReturn(Optional.empty());
+        when(cardRepository.findByIdWithUserWithCards(1L)).thenReturn(Optional.empty());
         assertThrows(NotFoundException.class, () -> cardService.deleteCard(auth, 1L));
     }
 
@@ -239,9 +256,9 @@ public class CardServiceImplTest {
         User user = new User();
         card.setUser(user);
 
-        when(cardRepository.findById(1L)).thenReturn(Optional.of(card));
+        when(cardRepository.findByIdWithUserWithCards(1L)).thenReturn(Optional.of(card));
         when(userMapper.toDto(user)).thenReturn(new UserDto());
-        when(accessChecker.canAccessUser(auth, new UserDto())).thenReturn(false);
+        when(accessChecker.canAccessUser(eq(auth), any(UserDto.class))).thenReturn(false);
 
         assertThrows(AccessDeniedException.class, () -> cardService.deleteCard(auth, 1L));
     }

@@ -12,6 +12,7 @@ import org.oldvabik.userservice.repository.UserRepository;
 import org.oldvabik.userservice.security.AccessChecker;
 import org.oldvabik.userservice.service.impl.UserServiceImpl;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import java.util.*;
@@ -29,6 +30,8 @@ public class UserServiceImplTest {
     private AccessChecker accessChecker;
     @Mock
     private Authentication auth;
+    @Mock
+    private RedisTemplate<String, Object> redisTemplate;
     @InjectMocks
     private UserServiceImpl userService;
 
@@ -181,11 +184,31 @@ public class UserServiceImplTest {
 
     @Test
     void deleteUser_success() {
-        User user = new User();
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        Long userId = 1L;
+        String email = "test@example.com";
 
-        userService.deleteUser(1L);
+        User user = new User();
+        user.setId(userId);
+        user.setEmail(email);
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        when(redisTemplate.keys("users::1_*"))
+                .thenReturn(Set.of("users::1_admin", "users::1_user"));
+
+        when(redisTemplate.keys("users::test@example.com_*"))
+                .thenReturn(Set.of("users::test@example.com_admin"));
+
+        when(redisTemplate.delete(anyCollection())).thenReturn(2L);
+
+        userService.deleteUser(userId);
+
         verify(userRepository).delete(user);
+
+        verify(redisTemplate, times(2)).delete(anyCollection());
+
+        verify(redisTemplate).delete(Set.of("users::1_admin", "users::1_user"));
+        verify(redisTemplate).delete(Set.of("users::test@example.com_admin"));
     }
 
     @Test

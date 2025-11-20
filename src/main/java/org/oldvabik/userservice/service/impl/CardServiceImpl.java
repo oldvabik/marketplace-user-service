@@ -158,8 +158,10 @@ public class CardServiceImpl implements CardService {
             throw new AccessDeniedException("Access denied");
         }
 
-        user.removeCard(card);
-        userRepository.save(user);
+        cardRepository.delete(card);
+
+//        user.removeCard(card);
+//        userRepository.save(user);
 
         log.info("[CardService] deleteCard: deleted id={}", id);
 

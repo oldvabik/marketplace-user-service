@@ -12,8 +12,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -153,8 +153,10 @@ class CardServiceImplTest {
         UserDto user = createTestUser();
         CardDto created = cardService.createCard(auth, cardCreateDto(user.getId(), "todelete"));
         cardService.deleteCard(auth, created.getId());
-        assertFalse(cardRepository.findById(created.getId()).isPresent());
+
+        assertThrows(NotFoundException.class, () -> cardService.getCardById(auth, created.getId()));
     }
+
 
     @Test
     void deleteCard_notFound() {
