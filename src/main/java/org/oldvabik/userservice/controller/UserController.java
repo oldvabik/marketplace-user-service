@@ -21,7 +21,7 @@ public class UserController {
         this.userService = userService;
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN') or #dto.email == authentication.name")
     @PostMapping
     public ResponseEntity<UserDto> createUser(@Valid @RequestBody UserCreateDto dto) {
         UserDto createdUser = userService.createUser(dto);
